@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 )
 
@@ -47,14 +48,26 @@ func GenerateKeyPair() (*KeyPair, error) {
 
 // GetJWKS returns the JSON Web Key Set for the key pair
 func (kp *KeyPair) GetJWKS() JWKS {
+	// Convert big.Int coordinates to bytes and then to Base64URL
+	xBytes := kp.PublicKey.X.Bytes()
+	yBytes := kp.PublicKey.Y.Bytes()
+
+	// Ensure proper byte length for P-256 (32 bytes)
+	if len(xBytes) < 32 {
+		xBytes = append(make([]byte, 32-len(xBytes)), xBytes...)
+	}
+	if len(yBytes) < 32 {
+		yBytes = append(make([]byte, 32-len(yBytes)), yBytes...)
+	}
+
 	return JWKS{
 		Keys: []JWK{
 			{
 				Kid:    kp.Kid,
 				Kty:    "EC",
 				Crv:    "P-256",
-				X:      fmt.Sprintf("%x", kp.PublicKey.X),
-				Y:      fmt.Sprintf("%x", kp.PublicKey.Y),
+				X:      base64.RawURLEncoding.EncodeToString(xBytes),
+				Y:      base64.RawURLEncoding.EncodeToString(yBytes),
 				Use:    "sig",
 				Alg:    "ES256",
 				KeyOps: []string{"verify"},
