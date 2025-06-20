@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+
+	"mock-oidc/internal/logger"
 )
 
 // KeyPair represents a public/private key pair
@@ -34,20 +36,38 @@ type JWK struct {
 
 // GenerateKeyPair generates a new ECDSA key pair
 func GenerateKeyPair() (*KeyPair, error) {
+	log := logger.Get()
+	log.Info("Starting ECDSA key pair generation", "curve", "P-256")
+
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
+		log.Error("Failed to generate ECDSA private key", "error", err, "curve", "P-256")
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
 
-	return &KeyPair{
+	kid := generateKid()
+	log.Debug("Generated key ID", "kid", kid)
+
+	keyPair := &KeyPair{
 		PrivateKey: privateKey,
 		PublicKey:  &privateKey.PublicKey,
-		Kid:        generateKid(),
-	}, nil
+		Kid:        kid,
+	}
+
+	log.Info("ECDSA key pair generated successfully",
+		"kid", kid,
+		"curve", "P-256",
+		"algorithm", "ES256",
+	)
+
+	return keyPair, nil
 }
 
 // GetJWKS returns the JSON Web Key Set for the key pair
 func (kp *KeyPair) GetJWKS() JWKS {
+	log := logger.Get()
+	log.Debug("Generating JWKS", "kid", kp.Kid)
+
 	// Convert big.Int coordinates to bytes and then to Base64URL
 	xBytes := kp.PublicKey.X.Bytes()
 	yBytes := kp.PublicKey.Y.Bytes()
@@ -60,7 +80,7 @@ func (kp *KeyPair) GetJWKS() JWKS {
 		yBytes = append(make([]byte, 32-len(yBytes)), yBytes...)
 	}
 
-	return JWKS{
+	jwks := JWKS{
 		Keys: []JWK{
 			{
 				Kid:    kp.Kid,
@@ -74,13 +94,29 @@ func (kp *KeyPair) GetJWKS() JWKS {
 			},
 		},
 	}
+
+	log.Debug("JWKS generated successfully",
+		"kid", kp.Kid,
+		"key_count", len(jwks.Keys),
+		"curve", "P-256",
+		"algorithm", "ES256",
+	)
+
+	return jwks
 }
 
 // generateKid generates a random key ID
 func generateKid() string {
+	log := logger.Get()
+
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
+		log.Error("Failed to generate random KID", "error", err)
 		panic("failed to generate random kid: " + err.Error())
 	}
-	return fmt.Sprintf("%x", b)
+
+	kid := fmt.Sprintf("%x", b)
+	log.Debug("Generated random KID", "kid", kid)
+
+	return kid
 }

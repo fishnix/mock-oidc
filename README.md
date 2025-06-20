@@ -11,6 +11,7 @@ A mock OpenID Connect server written in Go that follows the OIDC specification. 
 - Custom claims support
 - Built with Go standard library where possible
 - Supports both Authorization Code and Password Grant flows
+- **Comprehensive structured logging** with debug support
 
 ## Setup
 
@@ -34,11 +35,14 @@ A mock OpenID Connect server written in Go that follows the OIDC specification. 
 # Basic usage with default settings
 go run main.go
 
+# Run with debug logging (recommended for troubleshooting)
+go run main.go --debug
+
 # Specify a custom users directory
 go run main.go -users-dir /path/to/users
 
-# Full configuration example
-go run main.go -users-dir /path/to/users -host 0.0.0.0 -port 9090 -issuer http://my-issuer.com
+# Full configuration example with debug logging
+go run main.go --debug -users-dir /path/to/users -host 0.0.0.0 -port 9090 -issuer http://my-issuer.com
 ```
 
 ## Command-line Flags
@@ -47,6 +51,35 @@ go run main.go -users-dir /path/to/users -host 0.0.0.0 -port 9090 -issuer http:/
 - `-host`: Server host (default: `localhost`)
 - `-port`: Server port (default: `8080`)
 - `-issuer`: OIDC issuer URL (defaults to `http://{host}:{port}`)
+- `--debug`: Enable debug-level logging (default: info level)
+
+## Logging
+
+The server includes comprehensive structured logging using Go's `slog` library. This makes it much easier to debug integration issues when using the server in other projects.
+
+### Log Levels
+- **INFO** (default): General operational information
+- **DEBUG**: Detailed diagnostic information (use `--debug` flag)
+- **WARN**: Warning messages for potential issues
+- **ERROR**: Error messages for failed operations
+
+### Features
+- **Request tracking**: Each request gets a unique ID for easy tracing
+- **Structured JSON logs**: Easy to parse and analyze
+- **Context-aware logging**: User, client, and endpoint context
+- **Security monitoring**: Authentication attempts and failures
+- **Performance metrics**: Timing and resource usage
+
+For detailed logging documentation, see [LOGGING.md](LOGGING.md).
+
+### Quick Debugging
+```bash
+# Start with debug logging
+./mock-oidc --debug
+
+# Test the logging
+./test_logging.sh
+```
 
 ## Endpoints
 
