@@ -45,6 +45,29 @@ go run main.go -users-dir /path/to/users
 go run main.go --debug -users-dir /path/to/users -host 0.0.0.0 -port 9090 -issuer http://my-issuer.com
 ```
 
+## Docker
+
+The application can be run in Docker with all templates and dependencies included:
+
+```bash
+# Build the Docker image
+docker build -t mock-oidc .
+
+# Run the container
+docker run -p 8080:8080 mock-oidc
+
+# Run with debug logging
+docker run -p 8080:8080 mock-oidc --debug
+
+# Run with custom configuration
+docker run -p 8080:8080 -v /path/to/users:/app/users mock-oidc --debug -users-dir /app/users
+```
+
+The Docker image includes:
+- All required templates (`templates/login.html`)
+- Default user configuration
+- Proper file permissions and directory structure
+
 ## Command-line Flags
 
 - `-users-dir`: Directory containing user JSON files (default: `./users`)

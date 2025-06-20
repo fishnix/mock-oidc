@@ -8,6 +8,7 @@ RUN apk add --no-cache git
 
 # Copy go mod and sum files
 COPY go.mod ./
+COPY go.sum ./
 
 # Download dependencies
 RUN go mod download
@@ -34,6 +35,9 @@ RUN mkdir -p /app/users
 
 # Copy default user if exists
 COPY users/testuser.json /app/users/
+
+# Copy templates directory
+COPY templates/ /app/templates/
 
 # Expose the default port
 EXPOSE 8080
