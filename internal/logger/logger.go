@@ -71,22 +71,22 @@ func Get() *Logger {
 
 // WithRequestID creates a logger with request ID context
 func (l *Logger) WithRequestID(requestID string) *Logger {
-	return &Logger{Logger: l.Logger.With("request_id", requestID)}
+	return &Logger{Logger: l.With("request_id", requestID)}
 }
 
 // WithUser creates a logger with user context
 func (l *Logger) WithUser(username string) *Logger {
-	return &Logger{Logger: l.Logger.With("user", username)}
+	return &Logger{Logger: l.With("user", username)}
 }
 
 // WithClient creates a logger with client context
 func (l *Logger) WithClient(clientID string) *Logger {
-	return &Logger{Logger: l.Logger.With("client_id", clientID)}
+	return &Logger{Logger: l.With("client_id", clientID)}
 }
 
 // WithEndpoint creates a logger with endpoint context
 func (l *Logger) WithEndpoint(endpoint string) *Logger {
-	return &Logger{Logger: l.Logger.With("endpoint", endpoint)}
+	return &Logger{Logger: l.With("endpoint", endpoint)}
 }
 
 // Debug logs a debug message with optional attributes

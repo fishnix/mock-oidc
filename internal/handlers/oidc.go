@@ -41,7 +41,13 @@ func New(cfg *config.Config, users map[string]*models.User, keys *pki.KeyPair) *
 // generateRequestID generates a unique request ID for tracking
 func generateRequestID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// This should never happen with crypto/rand, but handle it gracefully
+		log := logger.Get()
+		log.Error("Failed to generate request ID", "error", err)
+		// Fallback to a timestamp-based ID
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
 	return fmt.Sprintf("%x", b)
 }
 
