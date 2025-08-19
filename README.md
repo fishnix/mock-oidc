@@ -10,14 +10,16 @@ A mock OpenID Connect server written in Go that follows the OIDC specification. 
 - Well-known endpoint support
 - Custom claims support
 - Built with Go standard library where possible
-- Supports both Authorization Code and Password Grant flows
+- Supports Authorization Code, Password Grant, and Client Credentials flows
 - **Comprehensive structured logging** with debug support
 
 ## Setup
 
 1. Install Go 1.21 or later
 
-2. Create a directory containing JSON files for each user. Example user file:
+2. Create directories containing JSON files for users and client applications:
+
+   **Users directory** - Create a directory containing JSON files for each user. Example user file:
 ```json
 {
     "username": "testuser",
@@ -30,6 +32,20 @@ A mock OpenID Connect server written in Go that follows the OIDC specification. 
 }
 ```
 
+   **Client Applications directory** - Create a directory containing JSON files for each client application. Example client file:
+```json
+{
+    "client_id": "testapp",
+    "client_secret": "secret123",
+    "claims": {
+        "name": "Test Application",
+        "app_type": "service",
+        "permissions": ["read", "write"],
+        "scope": "api"
+    }
+}
+```
+
 3. Run the server:
 ```bash
 # Basic usage with default settings
@@ -38,11 +54,11 @@ go run main.go
 # Run with debug logging (recommended for troubleshooting)
 go run main.go --debug
 
-# Specify a custom users directory
-go run main.go -users-dir /path/to/users
+# Specify custom users and apps directories
+go run main.go -users-dir /path/to/users -apps-dir /path/to/apps
 
 # Full configuration example with debug logging
-go run main.go --debug -users-dir /path/to/users -host 0.0.0.0 -port 9090 -issuer http://my-issuer.com
+go run main.go --debug -users-dir /path/to/users -apps-dir /path/to/apps -host 0.0.0.0 -port 9090 -issuer http://my-issuer.com
 ```
 
 ## Docker
@@ -60,7 +76,7 @@ docker run -p 8080:8080 mock-oidc
 docker run -p 8080:8080 mock-oidc --debug
 
 # Run with custom configuration
-docker run -p 8080:8080 -v /path/to/users:/app/users mock-oidc --debug -users-dir /app/users
+docker run -p 8080:8080 -v /path/to/users:/app/users -v /path/to/apps:/app/apps mock-oidc --debug -users-dir /app/users -apps-dir /app/apps
 ```
 
 The Docker image includes:
@@ -71,6 +87,7 @@ The Docker image includes:
 ## Command-line Flags
 
 - `-users-dir`: Directory containing user JSON files (default: `./users`)
+- `-apps-dir`: Directory containing client application JSON files (default: `./apps`)
 - `-host`: Server host (default: `localhost`)
 - `-port`: Server port (default: `8080`)
 - `-issuer`: OIDC issuer URL (defaults to `http://{host}:{port}`)
@@ -158,15 +175,47 @@ password=password123&
 scope=openid
 ```
 
+### Client Credentials Grant Flow
+
+Request tokens for client applications (machine-to-machine):
+```
+POST /oauth2/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&
+client_id=testapp&
+client_secret=secret123
+```
+
+Or using Basic authentication:
+```
+POST /oauth2/token
+Authorization: Basic dGVzdGFwcDpzZWNyZXQxMjM=
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+```
+
+**Note**: Client credentials grant returns only an `access_token`, no `id_token`.
+
 ### Token Response
 
-Both flows return the same token response:
+User-based flows (authorization_code, password) return:
 ```json
 {
     "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjEyMzQ1Njc4OTBhYmNkZWYifQ...",
     "token_type": "Bearer",
     "expires_in": 3600,
     "id_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjEyMzQ1Njc4OTBhYmNkZWYifQ..."
+}
+```
+
+Client credentials flow returns:
+```json
+{
+    "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjEyMzQ1Njc4OTBhYmNkZWYifQ...",
+    "token_type": "Bearer",
+    "expires_in": 3600
 }
 ```
 

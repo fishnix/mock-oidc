@@ -10,6 +10,7 @@ import (
 // Config holds the server configuration
 type Config struct {
 	UsersDir string
+	AppsDir  string
 	Host     string
 	Port     string
 	Issuer   string
@@ -24,9 +25,11 @@ func New() *Config {
 	port := getEnv("OIDC_PORT", "8080")
 	issuer := getEnv("OIDC_ISSUER", fmt.Sprintf("http://%s:%s", host, port))
 	usersDir := getEnv("OIDC_USERS_DIR", "./users")
+	appsDir := getEnv("OIDC_APPS_DIR", "./apps")
 
 	config := &Config{
 		UsersDir: usersDir,
+		AppsDir:  appsDir,
 		Host:     host,
 		Port:     port,
 		Issuer:   issuer,
@@ -37,6 +40,7 @@ func New() *Config {
 		"port", port,
 		"issuer", issuer,
 		"users_dir", usersDir,
+		"apps_dir", appsDir,
 	)
 
 	return config
@@ -53,14 +57,19 @@ func (c *Config) ServerAddr() string {
 // EnsureDirs ensures that the required directories exist
 func (c *Config) EnsureDirs() error {
 	log := logger.Get()
-	log.Debug("Ensuring directories exist", "users_dir", c.UsersDir)
+	log.Debug("Ensuring directories exist", "users_dir", c.UsersDir, "apps_dir", c.AppsDir)
 
 	if err := os.MkdirAll(c.UsersDir, 0755); err != nil {
 		log.Error("Failed to create directory", "error", err, "directory", c.UsersDir)
 		return fmt.Errorf("failed to create directory %s: %w", c.UsersDir, err)
 	}
 
-	log.Debug("Directory ensured successfully", "directory", c.UsersDir)
+	if err := os.MkdirAll(c.AppsDir, 0755); err != nil {
+		log.Error("Failed to create directory", "error", err, "directory", c.AppsDir)
+		return fmt.Errorf("failed to create directory %s: %w", c.AppsDir, err)
+	}
+
+	log.Debug("Directories ensured successfully", "users_dir", c.UsersDir, "apps_dir", c.AppsDir)
 	return nil
 }
 

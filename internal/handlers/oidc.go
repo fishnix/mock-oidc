@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"mock-oidc/internal/config"
@@ -22,16 +24,18 @@ import (
 type Handler struct {
 	config  *config.Config
 	users   map[string]*models.User
+	apps    map[string]*models.App
 	keys    *pki.KeyPair
 	session *session.Manager
 	logger  *logger.Logger
 }
 
 // New creates a new Handler
-func New(cfg *config.Config, users map[string]*models.User, keys *pki.KeyPair) *Handler {
+func New(cfg *config.Config, users map[string]*models.User, apps map[string]*models.App, keys *pki.KeyPair) *Handler {
 	return &Handler{
 		config:  cfg,
 		users:   users,
+		apps:    apps,
 		keys:    keys,
 		session: session.New(10), // 10 minutes expiry for auth codes
 		logger:  logger.Get(),
@@ -84,6 +88,11 @@ func (h *Handler) WellKnownConfiguration(w http.ResponseWriter, r *http.Request)
 			"openid",
 			"profile",
 			"email",
+		},
+		"grant_types_supported": []string{
+			"authorization_code",
+			"password",
+			"client_credentials",
 		},
 		"token_endpoint_auth_methods_supported": []string{
 			"client_secret_basic",
@@ -388,6 +397,7 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	log.Debug("Token request parameters", "grant_type", grantType)
 
 	var user *models.User
+	var app *models.App
 
 	switch grantType {
 	case "authorization_code":
@@ -462,6 +472,34 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 
 		log.Info("Password grant successful", "username", user.Username)
 
+	case "client_credentials":
+		// Extract client credentials from Authorization header or form data
+		clientID, clientSecret, err := h.extractClientCredentials(r)
+		if err != nil {
+			log.Warn("Failed to extract client credentials", "error", err)
+			http.Error(w, "Invalid client credentials", http.StatusUnauthorized)
+			return
+		}
+
+		log.Debug("Processing client credentials grant", "client_id", clientID)
+
+		// Validate client
+		var exists bool
+		app, exists = h.apps[clientID]
+		if !exists {
+			log.Warn("Client credentials grant attempt with non-existent client", "client_id", clientID)
+			http.Error(w, "Invalid client", http.StatusUnauthorized)
+			return
+		}
+
+		if !app.ValidateClientSecret(clientSecret) {
+			log.Warn("Client credentials grant attempt with invalid client secret", "client_id", clientID)
+			http.Error(w, "Invalid client credentials", http.StatusUnauthorized)
+			return
+		}
+
+		log.Info("Client credentials grant successful", "client_id", app.ClientID)
+
 	default:
 		log.Warn("Unsupported grant type", "grant_type", grantType)
 		http.Error(w, "Unsupported grant type", http.StatusBadRequest)
@@ -470,24 +508,49 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 
 	// Create ID token
 	now := time.Now()
-	claims := jwt.MapClaims{
-		"iss": h.config.Issuer,
-		"sub": user.Username,
-		"iat": now.Unix(),
-		"exp": now.Add(time.Hour).Unix(),
-	}
+	var claims jwt.MapClaims
 
-	// Add user claims
-	for k, v := range user.Claims {
-		claims[k] = v
-	}
+	if user != nil {
+		// User-based token (authorization_code or password grant)
+		claims = jwt.MapClaims{
+			"iss": h.config.Issuer,
+			"sub": user.Username,
+			"iat": now.Unix(),
+			"exp": now.Add(time.Hour).Unix(),
+		}
 
-	log.Debug("Creating JWT token",
-		"username", user.Username,
-		"issuer", h.config.Issuer,
-		"expires_at", now.Add(time.Hour),
-		"claim_count", len(claims),
-	)
+		// Add user claims
+		for k, v := range user.Claims {
+			claims[k] = v
+		}
+
+		log.Debug("Creating JWT token for user",
+			"username", user.Username,
+			"issuer", h.config.Issuer,
+			"expires_at", now.Add(time.Hour),
+			"claim_count", len(claims),
+		)
+	} else if app != nil {
+		// App-based token (client_credentials grant)
+		claims = jwt.MapClaims{
+			"iss": h.config.Issuer,
+			"sub": app.ClientID,
+			"iat": now.Unix(),
+			"exp": now.Add(time.Hour).Unix(),
+		}
+
+		// Add app claims
+		for k, v := range app.Claims {
+			claims[k] = v
+		}
+
+		log.Debug("Creating JWT token for app",
+			"client_id", app.ClientID,
+			"issuer", h.config.Issuer,
+			"expires_at", now.Add(time.Hour),
+			"claim_count", len(claims),
+		)
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	token.Header["kid"] = h.keys.Kid
@@ -495,7 +558,11 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 	// Sign token
 	tokenString, err := token.SignedString(h.keys.PrivateKey)
 	if err != nil {
-		log.Error("Failed to sign JWT token", "error", err, "username", user.Username)
+		if user != nil {
+			log.Error("Failed to sign JWT token", "error", err, "username", user.Username)
+		} else {
+			log.Error("Failed to sign JWT token", "error", err, "client_id", app.ClientID)
+		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -505,19 +572,35 @@ func (h *Handler) Token(w http.ResponseWriter, r *http.Request) {
 		"access_token": tokenString,
 		"token_type":   "Bearer",
 		"expires_in":   3600,
-		"id_token":     tokenString,
 	}
 
-	log.Debug("Token response prepared", "username", user.Username)
+	// Only include id_token for user-based grants (not client_credentials)
+	if user != nil {
+		response["id_token"] = tokenString
+	}
+
+	if user != nil {
+		log.Debug("Token response prepared", "username", user.Username)
+	} else {
+		log.Debug("Token response prepared", "client_id", app.ClientID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Error("Failed to encode token response", "error", err, "username", user.Username)
+		if user != nil {
+			log.Error("Failed to encode token response", "error", err, "username", user.Username)
+		} else {
+			log.Error("Failed to encode token response", "error", err, "client_id", app.ClientID)
+		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Info("Token request completed successfully", "username", user.Username, "grant_type", grantType)
+	if user != nil {
+		log.Info("Token request completed successfully", "username", user.Username, "grant_type", grantType)
+	} else {
+		log.Info("Token request completed successfully", "client_id", app.ClientID, "grant_type", grantType)
+	}
 }
 
 // UserInfo handles the /oauth2/userinfo endpoint
@@ -588,4 +671,46 @@ func (h *Handler) UserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info("Userinfo request completed successfully", "username", username)
+}
+
+// extractClientCredentials extracts client_id and client_secret from the request
+// Supports both client_secret_basic (Authorization header) and client_secret_post (form data)
+func (h *Handler) extractClientCredentials(r *http.Request) (string, string, error) {
+	log := h.logger
+
+	// Try client_secret_basic first (Authorization header)
+	auth := r.Header.Get("Authorization")
+	if auth != "" && len(auth) >= 6 && auth[:6] == "Basic " {
+		// Decode Basic auth
+		decoded, err := base64.StdEncoding.DecodeString(auth[6:])
+		if err != nil {
+			log.Debug("Failed to decode Basic auth", "error", err)
+			return "", "", fmt.Errorf("invalid Basic auth encoding")
+		}
+
+		// Parse client_id:client_secret
+		parts := strings.SplitN(string(decoded), ":", 2)
+		if len(parts) != 2 {
+			log.Debug("Invalid Basic auth format", "parts_count", len(parts))
+			return "", "", fmt.Errorf("invalid Basic auth format")
+		}
+
+		clientID := parts[0]
+		clientSecret := parts[1]
+
+		log.Debug("Extracted client credentials from Basic auth", "client_id", clientID)
+		return clientID, clientSecret, nil
+	}
+
+	// Try client_secret_post (form data)
+	clientID := r.Form.Get("client_id")
+	clientSecret := r.Form.Get("client_secret")
+
+	if clientID == "" || clientSecret == "" {
+		log.Debug("Missing client credentials in form data", "client_id_provided", clientID != "", "client_secret_provided", clientSecret != "")
+		return "", "", fmt.Errorf("missing client credentials")
+	}
+
+	log.Debug("Extracted client credentials from form data", "client_id", clientID)
+	return clientID, clientSecret, nil
 }
