@@ -1,0 +1,10 @@
+{
+    "client_id": "testapp",
+    "client_secret": "secret123",
+    "claims": {
+        "name": "Test Application",
+        "app_type": "service",
+        "permissions": ["read", "write"],
+        "scope": "api"
+    }
+}

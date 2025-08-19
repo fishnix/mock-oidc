@@ -15,6 +15,7 @@ import (
 func main() {
 	// Parse command line flags
 	usersDir := flag.String("users-dir", "./users", "Directory containing user JSON files")
+	appsDir := flag.String("apps-dir", "./apps", "Directory containing client application JSON files")
 	host := flag.String("host", "localhost", "Server host")
 	port := flag.String("port", "8080", "Server port")
 	issuer := flag.String("issuer", "", "OIDC issuer URL (defaults to http://{host}:{port})")
@@ -35,6 +36,7 @@ func main() {
 		"host", *host,
 		"port", *port,
 		"users_dir", *usersDir,
+		"apps_dir", *appsDir,
 	)
 
 	// Set environment variables from flags
@@ -44,6 +46,13 @@ func main() {
 			os.Exit(1)
 		}
 		log.Debug("Set OIDC_USERS_DIR environment variable", "value", *usersDir)
+	}
+	if *appsDir != "./apps" {
+		if err := os.Setenv("OIDC_APPS_DIR", *appsDir); err != nil {
+			log.Error("Failed to set OIDC_APPS_DIR environment variable", "error", err)
+			os.Exit(1)
+		}
+		log.Debug("Set OIDC_APPS_DIR environment variable", "value", *appsDir)
 	}
 	if *host != "localhost" {
 		if err := os.Setenv("OIDC_HOST", *host); err != nil {
@@ -72,16 +81,17 @@ func main() {
 	cfg := config.New()
 	log.Debug("Configuration loaded",
 		"users_dir", cfg.UsersDir,
+		"apps_dir", cfg.AppsDir,
 		"host", cfg.Host,
 		"port", cfg.Port,
 		"issuer", cfg.Issuer,
 	)
 
 	if err := cfg.EnsureDirs(); err != nil {
-		log.Error("Failed to ensure directories", "error", err, "users_dir", cfg.UsersDir)
+		log.Error("Failed to ensure directories", "error", err, "users_dir", cfg.UsersDir, "apps_dir", cfg.AppsDir)
 		os.Exit(1)
 	}
-	log.Debug("Directories ensured", "users_dir", cfg.UsersDir)
+	log.Debug("Directories ensured", "users_dir", cfg.UsersDir, "apps_dir", cfg.AppsDir)
 
 	// Generate new keys
 	log.Info("Generating key pair")
@@ -102,9 +112,19 @@ func main() {
 	log.Info("Users loaded successfully", "user_count", len(users))
 	log.Debug("Loaded users", "usernames", getUserNames(users))
 
+	// Load client applications
+	log.Info("Loading client applications", "apps_dir", cfg.AppsDir)
+	apps, err := models.LoadApps(cfg.AppsDir)
+	if err != nil {
+		log.Error("Failed to load client applications", "error", err, "apps_dir", cfg.AppsDir)
+		os.Exit(1)
+	}
+	log.Info("Client applications loaded successfully", "app_count", len(apps))
+	log.Debug("Loaded applications", "client_ids", getClientIDs(apps))
+
 	// Create handler
 	log.Info("Creating OIDC handler")
-	handler := handlers.New(cfg, users, keys)
+	handler := handlers.New(cfg, users, apps, keys)
 	log.Debug("OIDC handler created successfully")
 
 	// Set up routes
@@ -151,4 +171,13 @@ func getUserNames(users map[string]*models.User) []string {
 		names = append(names, username)
 	}
 	return names
+}
+
+// getClientIDs returns a slice of client IDs from the apps map
+func getClientIDs(apps map[string]*models.App) []string {
+	ids := make([]string, 0, len(apps))
+	for clientID := range apps {
+		ids = append(ids, clientID)
+	}
+	return ids
 }
